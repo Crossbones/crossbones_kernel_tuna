@@ -33,7 +33,7 @@
  * voltage dependent data for each VDD.
  */
 
-#define OMAP4430_VDD_MPU_OPP50_UV		850000
+#define OMAP4430_VDD_MPU_OPP50_UV		875000
 #define OMAP4430_VDD_MPU_OPP100_UV		1125000
 #define OMAP4430_VDD_MPU_OPPTURBO_UV		1250000
 #define OMAP4430_VDD_MPU_OPPNITRO_UV		1275000
@@ -49,7 +49,7 @@ struct omap_volt_data omap443x_vdd_mpu_volt_data[] = {
 	VOLT_DATA_DEFINE(0, 0, 0, 0, 0),
 };
 
-#define OMAP4430_VDD_IVA_OPP50_UV		 850000
+#define OMAP4430_VDD_IVA_OPP50_UV		 875000
 #define OMAP4430_VDD_IVA_OPP100_UV		1114000
 #define OMAP4430_VDD_IVA_OPPTURBO_UV		1291000
 
@@ -160,7 +160,7 @@ static struct omap_opp_def __initdata omap443x_opp_def_list[] = {
 	OPP_INITIALIZER("aess", "abe_clk", "iva", true, 196608000, OMAP4430_VDD_IVA_OPP100_UV),
 };
 
-#define OMAP4460_VDD_MPU_OPP50_UV		850000
+#define OMAP4460_VDD_MPU_OPP50_UV		875000
 #define OMAP4460_VDD_MPU_OPP100_UV		975000
 #define OMAP4460_VDD_MPU_OPPTURBO_UV		1050000
 #define OMAP4460_VDD_MPU_OPPNITRO_UV		1175000
