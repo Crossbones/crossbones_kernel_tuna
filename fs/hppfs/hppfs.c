@@ -16,6 +16,7 @@
 #include <linux/statfs.h>
 #include <linux/types.h>
 #include <linux/pid_namespace.h>
+#include <linux/namei.h>
 #include <asm/uaccess.h>
 #include "os.h"
 
@@ -620,7 +621,6 @@ void hppfs_evict_inode(struct inode *ino)
 static void hppfs_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kfree(HPPFS_I(inode));
 }
 

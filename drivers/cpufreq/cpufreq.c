@@ -943,9 +943,13 @@ static int cpufreq_add_dev(struct sys_device *sys_dev)
 	}
 
 	if (policy->max > 1200000) {
-	    pr_info("cpufreq policy max set to 1.2Ghz at boot");
-	    policy->max = 1200000;
-	  }
+		pr_info("[imoseyon] cpufreq policy max set to 1.2Ghz at boot");
+		policy->max = 1200000;
+	}
+	if (policy->min < 350000) {
+		pr_info("[imoseyon] cpufreq policy min set to 350Mhz at boot");
+		policy->min = 350000;
+	}
 
 	policy->user_policy.min = policy->min;
 	policy->user_policy.max = policy->max;
@@ -1204,6 +1208,26 @@ unsigned int cpufreq_quick_get(unsigned int cpu)
 	return ret_freq;
 }
 EXPORT_SYMBOL(cpufreq_quick_get);
+
+/**
+ * cpufreq_quick_get_max - get the max reported CPU frequency for this CPU
+ * @cpu: CPU number
+ *
+ * Just return the max possible frequency for a given CPU.
+ */
+unsigned int cpufreq_quick_get_max(unsigned int cpu)
+{
+	struct cpufreq_policy *policy = cpufreq_cpu_get(cpu);
+	unsigned int ret_freq = 0;
+
+	if (policy) {
+		ret_freq = policy->max;
+		cpufreq_cpu_put(policy);
+	}
+
+	return ret_freq;
+}
+EXPORT_SYMBOL(cpufreq_quick_get_max);
 
 
 static unsigned int __cpufreq_get(unsigned int cpu)

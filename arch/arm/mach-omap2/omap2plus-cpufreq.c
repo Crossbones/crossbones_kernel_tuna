@@ -340,13 +340,8 @@ static int __cpuinit omap_cpu_init(struct cpufreq_policy *policy)
 
 	cpufreq_frequency_table_get_attr(freq_table, policy->cpu);
 
-#ifdef CONFIG_CPU_FREQ_SET_MIN_MAX
 	policy->min = policy->cpuinfo.min_freq;
 	policy->max = policy->cpuinfo.max_freq;
-#else
-	policy->min = policy->cpuinfo.min_freq;
-	policy->max = policy->cpuinfo.max_freq;
-#endif
 	policy->cur = omap_getspeed(policy->cpu);
 
 	for (i = 0; freq_table[i].frequency != CPUFREQ_TABLE_END; i++)
@@ -366,7 +361,7 @@ static int __cpuinit omap_cpu_init(struct cpufreq_policy *policy)
 	}
 
 	/* FIXME: what's the actual transition time? */
-	policy->cpuinfo.transition_latency = 300 * 1000;
+	policy->cpuinfo.transition_latency = 30 * 1000;
 
 	return 0;
 
@@ -502,13 +497,7 @@ static ssize_t store_uv_mv_table(struct cpufreq_policy *policy,
 				return -EINVAL;
 			}
 			policy->cur = policy->max = policy->min = freq_table[i].frequency;
-        		voltdm_scale(mpu_voltdm, mpu_voltdm->curr_volt);
-			msleep(500);
-
-			pr_info("[imoseyon] Voltage @%d: Nominal %d, Calib %d, DynNom %d\n", 
-				policy->cur,mpu_voltdm->curr_volt->volt_nominal,
-				mpu_voltdm->curr_volt->volt_calibrated,
-				mpu_voltdm->curr_volt->volt_dynamic_nominal);
+        		ret = omap_device_scale(mpu_dev, mpu_dev, freq_table[i].frequency);
 
 			/* Alter voltage. First do it in our opp */
 			rcu_read_lock();
@@ -552,26 +541,28 @@ static ssize_t store_uv_mv_table(struct cpufreq_policy *policy,
 			buf += (strlen(size_cur)+1);
 
 			// imoseyon - force smartreflex to recalibrate based on new voltages
-			//          - disabled for higher than 1.2ghz for now
-			if (freq_table[i].frequency <= 1200000 && 
+			if (freq_table[i].frequency <= policymax && 
 				freq_table[i].frequency >= policymin) {
 				vdata = omap_voltage_get_curr_vdata(mpu_voltdm);
 				if (!vdata) {
 				  pr_err("%s: [imoseyon] unable to find current volt for vdd_%s\n", 
 					__func__, mpu_voltdm->name);
-				}
-				// if nominal volt is too large bail
-				if (volt_old > mpu_voltdm->curr_volt->volt_nominal) {
-				  omap_sr_disable(mpu_voltdm);
-				  omap_voltage_calib_reset(mpu_voltdm);
-				  voltdm_reset(mpu_voltdm);
-				  omap_sr_enable(mpu_voltdm, vdata);
-				  pr_info("[imoseyon] calibration reset for %s at %d.\n",  
+				} else {
+			         //for (j=0; j<2; j++)
+				  // if nominal volt is too large bail
+				  if (volt_old > mpu_voltdm->curr_volt->volt_nominal) {
+				    omap_sr_disable(mpu_voltdm);
+        			    ret = omap_device_scale(mpu_dev, mpu_dev, freq_table[i].frequency);
+				    omap_voltage_calib_reset(mpu_voltdm);
+				    voltdm_reset(mpu_voltdm);
+				    omap_sr_enable(mpu_voltdm, vdata);
+				    pr_info("[imoseyon] calibration reset for %s at %d.\n",  
 					mpu_voltdm->name, policy->cur);
-				  msleep(2500);
-				  pr_info("[imoseyon] calibration should have finished.\n\n");
-				} else
-				  pr_info("[imoseyon] nominal volt too high - bailing!\n");
+				    //msleep(1000);
+				    //pr_info("[imoseyon] calibration should have finished.\n\n");
+				  } else
+				    pr_info("[imoseyon] nominal volt too high - bailing!\n");
+				}
 			}
 		}
 		else {

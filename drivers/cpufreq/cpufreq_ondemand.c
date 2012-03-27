@@ -22,9 +22,6 @@
 #include <linux/tick.h>
 #include <linux/ktime.h>
 #include <linux/sched.h>
-#ifdef CONFIG_HAS_EARLYSUSPEND
-#include <linux/earlysuspend.h>
-#endif
 
 /*
  * dbs is used in this file as a shortform for demandbased switching
@@ -32,11 +29,11 @@
  */
 
 #define DEF_FREQUENCY_DOWN_DIFFERENTIAL		(10)
-#define DEF_FREQUENCY_UP_THRESHOLD		(65)
-#define DEF_SAMPLING_DOWN_FACTOR		(35)
+#define DEF_FREQUENCY_UP_THRESHOLD		(80)
+#define DEF_SAMPLING_DOWN_FACTOR		(1)
 #define MAX_SAMPLING_DOWN_FACTOR		(100000)
 #define MICRO_FREQUENCY_DOWN_DIFFERENTIAL	(3)
-#define MICRO_FREQUENCY_UP_THRESHOLD		(75)
+#define MICRO_FREQUENCY_UP_THRESHOLD		(95)
 #define MICRO_FREQUENCY_MIN_SAMPLE_RATE		(10000)
 #define MIN_FREQUENCY_UP_THRESHOLD		(11)
 #define MAX_FREQUENCY_UP_THRESHOLD		(100)
@@ -62,11 +59,6 @@ static unsigned int min_sampling_rate;
 static void do_dbs_timer(struct work_struct *work);
 static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 				unsigned int event);
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static struct early_suspend cpufreq_gov_early_suspend;
-static unsigned int cpufreq_gov_lcd_status;
-#endif
 
 #ifndef CONFIG_CPU_FREQ_DEFAULT_GOV_ONDEMAND
 static
@@ -119,18 +111,12 @@ static struct dbs_tuners {
 	unsigned int sampling_down_factor;
 	unsigned int powersave_bias;
 	unsigned int io_is_busy;
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-	unsigned int two_phase_freq;
-#endif
 } dbs_tuners_ins = {
 	.up_threshold = DEF_FREQUENCY_UP_THRESHOLD,
 	.sampling_down_factor = DEF_SAMPLING_DOWN_FACTOR,
 	.down_differential = DEF_FREQUENCY_DOWN_DIFFERENTIAL,
 	.ignore_nice = 0,
 	.powersave_bias = 0,
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-	.two_phase_freq = 0,
-#endif
 };
 
 static inline cputime64_t get_cpu_idle_time_jiffy(unsigned int cpu,
@@ -271,9 +257,6 @@ show_one(up_threshold, up_threshold);
 show_one(sampling_down_factor, sampling_down_factor);
 show_one(ignore_nice_load, ignore_nice);
 show_one(powersave_bias, powersave_bias);
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-show_one(two_phase_freq, two_phase_freq);
-#endif
 
 static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
 				   const char *buf, size_t count)
@@ -286,24 +269,6 @@ static ssize_t store_sampling_rate(struct kobject *a, struct attribute *b,
 	dbs_tuners_ins.sampling_rate = max(input, min_sampling_rate);
 	return count;
 }
-
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-static ssize_t store_two_phase_freq(struct kobject *a, struct attribute *b,
-				   const char *buf, size_t count)
-{
-	unsigned int input;
-	int ret;
-	ret = sscanf(buf, "%u", &input);
-	if (ret != 1)
-		return -EINVAL;
-
-	mutex_lock(&dbs_mutex);
-	dbs_tuners_ins.two_phase_freq = input;
-	mutex_unlock(&dbs_mutex);
-
-	return count;
-}
-#endif
 
 static ssize_t store_io_is_busy(struct kobject *a, struct attribute *b,
 				   const char *buf, size_t count)
@@ -410,9 +375,6 @@ define_one_global_rw(up_threshold);
 define_one_global_rw(sampling_down_factor);
 define_one_global_rw(ignore_nice_load);
 define_one_global_rw(powersave_bias);
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-define_one_global_rw(two_phase_freq);
-#endif
 
 static struct attribute *dbs_attributes[] = {
 	&sampling_rate_min.attr,
@@ -422,9 +384,6 @@ static struct attribute *dbs_attributes[] = {
 	&ignore_nice_load.attr,
 	&powersave_bias.attr,
 	&io_is_busy.attr,
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-	&two_phase_freq.attr,
-#endif
 	NULL
 };
 
@@ -446,24 +405,12 @@ static void dbs_freq_increase(struct cpufreq_policy *p, unsigned int freq)
 			CPUFREQ_RELATION_L : CPUFREQ_RELATION_H);
 }
 
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-int set_two_phase_freq(int cpufreq)
-{
-	dbs_tuners_ins.two_phase_freq = cpufreq;
-	return 0;
-}
-#endif
-
 static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 {
 	unsigned int max_load_freq;
 
 	struct cpufreq_policy *policy;
 	unsigned int j;
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-	static unsigned int phase = 0;
-	static unsigned int counter = 0;
-#endif
 
 	this_dbs_info->freq_lo = 0;
 	policy = this_dbs_info->cur_policy;
@@ -551,62 +498,12 @@ static void dbs_check_cpu(struct cpu_dbs_info_s *this_dbs_info)
 	/* Check for frequency increase */
 	if (max_load_freq > dbs_tuners_ins.up_threshold * policy->cur) {
 		/* If switching to max speed, apply sampling_down_factor */
-#ifndef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
 		if (policy->cur < policy->max)
 			this_dbs_info->rate_mult =
 				dbs_tuners_ins.sampling_down_factor;
 		dbs_freq_increase(policy, policy->max);
-#else
-		if (counter < 5) {
-			counter++;
-			if (counter > 2) {
-				/* change to busy phase */
-				phase = 1;
-			}
-		}
-		if (dbs_tuners_ins.two_phase_freq != 0 && phase == 0) {
-			/* idle phase */
-			dbs_freq_increase(policy,
-				(((dbs_tuners_ins.two_phase_freq)> (int)(policy->max*80/100))
-					?(dbs_tuners_ins.two_phase_freq) : (int)(policy->max*80/100))  );
-		} else {
-			/* busy phase */
-			if (policy->cur < policy->max)
-				this_dbs_info->rate_mult =
-					dbs_tuners_ins.sampling_down_factor;
-			dbs_freq_increase(policy, policy->max);
-		}
-#endif
 		return;
 	}
-#ifdef CONFIG_CPU_FREQ_GOV_ONDEMAND_2_PHASE
-	if (counter > 0) {
-		counter--;
-		if (counter == 0) {
-			/* change to idle phase */
-			phase = 0;
-		}
-	}
-#endif
-
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	/* should we enable auxillary CPUs? */
-	/* only master CPU is alive and Screen is ON */
-	if (num_online_cpus() < 2 && cpufreq_gov_lcd_status == 1) {
-		mutex_unlock(&this_dbs_info->timer_mutex);
-		/* hot-plug enable 2nd CPU */
-		cpu_up(1);
-		mutex_lock(&this_dbs_info->timer_mutex);
-		printk("OnDemand - Screen ON Hot-plug!\n");
-	/* Both CPUs are up and Screen is OFF */
-	} else if (num_online_cpus() > 1 && cpufreq_gov_lcd_status == 0) {
-		mutex_unlock(&this_dbs_info->timer_mutex);
-		/* hot-unplug 2nd CPU */
-		cpu_down(1);
-		printk("OnDemand - Screen OFF Hot-unplug!\n");
-		mutex_lock(&this_dbs_info->timer_mutex);
-	}
-#endif
 
 	/* Check for frequency decrease */
 	/* if we cannot reduce the frequency anymore, break out early */
@@ -816,18 +713,6 @@ static int cpufreq_governor_dbs(struct cpufreq_policy *policy,
 	return 0;
 }
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-static void cpufreq_gov_suspend(struct early_suspend *h)
-{
-	cpufreq_gov_lcd_status = 0;
-}
-
-static void cpufreq_gov_resume(struct early_suspend *h)
-{
-	cpufreq_gov_lcd_status = 1;
-}
-#endif
-
 static int __init cpufreq_gov_dbs_init(void)
 {
 	cputime64_t wall;
@@ -842,7 +727,7 @@ static int __init cpufreq_gov_dbs_init(void)
 		dbs_tuners_ins.down_differential =
 					MICRO_FREQUENCY_DOWN_DIFFERENTIAL;
 		/*
-		 * In no_hz/micro accounting case we set the minimum frequency
+		 * In nohz/micro accounting case we set the minimum frequency
 		 * not depending on HZ, but fixed (very low). The deferred
 		 * timer might skip some samples if idle/sleeping as needed.
 		*/
@@ -853,16 +738,6 @@ static int __init cpufreq_gov_dbs_init(void)
 			MIN_SAMPLING_RATE_RATIO * jiffies_to_usecs(10);
 	}
 
-#ifdef CONFIG_HAS_EARLYSUSPEND
-	cpufreq_gov_lcd_status = 1;
-
-	cpufreq_gov_early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 25;
-
-	cpufreq_gov_early_suspend.suspend = cpufreq_gov_suspend;
-	cpufreq_gov_early_suspend.resume = cpufreq_gov_resume;
-	register_early_suspend(&cpufreq_gov_early_suspend);
-#endif
-
 	return cpufreq_register_governor(&cpufreq_gov_ondemand);
 }
 
@@ -870,6 +745,7 @@ static void __exit cpufreq_gov_dbs_exit(void)
 {
 	cpufreq_unregister_governor(&cpufreq_gov_ondemand);
 }
+
 
 MODULE_AUTHOR("Venkatesh Pallipadi <venkatesh.pallipadi@intel.com>");
 MODULE_AUTHOR("Alexey Starikovskiy <alexey.y.starikovskiy@intel.com>");

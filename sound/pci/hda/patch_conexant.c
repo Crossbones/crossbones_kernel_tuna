@@ -136,6 +136,7 @@ struct conexant_spec {
 	unsigned int thinkpad:1;
 	unsigned int hp_laptop:1;
 	unsigned int asus:1;
+	unsigned int single_adc_amp:1;
 
 	unsigned int adc_switching:1;
 
@@ -4126,7 +4127,8 @@ static int cx_auto_add_volume_idx(struct hda_codec *codec, const char *basename,
 		err = snd_hda_ctl_add(codec, nid, kctl);
 		if (err < 0)
 			return err;
-		if (!(query_amp_caps(codec, nid, hda_dir) & AC_AMPCAP_MUTE))
+		if (!(query_amp_caps(codec, nid, hda_dir) &
+		      (AC_AMPCAP_MUTE | AC_AMPCAP_MIN_MUTE)))
 			break;
 	}
 	return 0;
@@ -4214,6 +4216,8 @@ static int cx_auto_add_capture_volume(struct hda_codec *codec, hda_nid_t nid,
 		int idx = get_input_connection(codec, adc_nid, nid);
 		if (idx < 0)
 			continue;
+		if (spec->single_adc_amp)
+			idx = 0;
 		return cx_auto_add_volume_idx(codec, label, pfx,
 					      cidx, adc_nid, HDA_INPUT, idx);
 	}
@@ -4254,14 +4258,21 @@ static int cx_auto_build_input_controls(struct hda_codec *codec)
 	struct hda_input_mux *imux = &spec->private_imux;
 	const char *prev_label;
 	int input_conn[HDA_MAX_NUM_INPUTS];
-	int i, err, cidx;
+	int i, j, err, cidx;
 	int multi_connection;
+
+	if (!imux->num_items)
+		return 0;
 
 	multi_connection = 0;
 	for (i = 0; i < imux->num_items; i++) {
 		cidx = get_input_connection(codec, spec->imux_info[i].adc,
 					    spec->imux_info[i].pin);
-		input_conn[i] = (spec->imux_info[i].adc << 8) | cidx;
+		if (cidx < 0)
+			continue;
+		input_conn[i] = spec->imux_info[i].adc;
+		if (!spec->single_adc_amp)
+			input_conn[i] |= cidx << 8;
 		if (i > 0 && input_conn[i] != input_conn[0])
 			multi_connection = 1;
 	}
@@ -4290,6 +4301,15 @@ static int cx_auto_build_input_controls(struct hda_codec *codec)
 			err = cx_auto_add_capture_volume(codec, nid,
 							 "Capture", "", cidx);
 		} else {
+			bool dup_found = false;
+			for (j = 0; j < i; j++) {
+				if (input_conn[j] == input_conn[i]) {
+					dup_found = true;
+					break;
+				}
+			}
+			if (dup_found)
+				continue;
 			err = cx_auto_add_capture_volume(codec, nid,
 							 label, " Capture", cidx);
 		}
@@ -4353,6 +4373,22 @@ static const struct hda_codec_ops cx_auto_patch_ops = {
 	.reboot_notify = snd_hda_shutup_pins,
 };
 
+/* add "fake" mute amp-caps to DACs on cx5051 so that mixer mute switches
+ * can be created (bko#42825)
+ */
+static void add_cx5051_fake_mutes(struct hda_codec *codec)
+{
+	static hda_nid_t out_nids[] = {
+		0x10, 0x11, 0
+	};
+	hda_nid_t *p;
+
+	for (p = out_nids; *p; p++)
+		snd_hda_override_amp_caps(codec, *p, HDA_OUTPUT,
+					  AC_AMPCAP_MIN_MUTE |
+					  query_amp_caps(codec, *p, HDA_OUTPUT));
+}
+
 static int patch_conexant_auto(struct hda_codec *codec)
 {
 	struct conexant_spec *spec;
@@ -4366,6 +4402,16 @@ static int patch_conexant_auto(struct hda_codec *codec)
 		return -ENOMEM;
 	codec->spec = spec;
 	codec->pin_amp_workaround = 1;
+
+	switch (codec->vendor_id) {
+	case 0x14f15045:
+		spec->single_adc_amp = 1;
+		break;
+	case 0x14f15051:
+		add_cx5051_fake_mutes(codec);
+		break;
+	}
+
 	err = cx_auto_search_adcs(codec);
 	if (err < 0)
 		return err;

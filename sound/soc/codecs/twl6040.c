@@ -876,9 +876,9 @@ static int pga_event(struct snd_soc_dapm_widget *w,
 			/* use volume ramp for power-down */
 #ifdef CONFIG_SOUND_CONTROL
 			if (w->shift == 2 || w->shift == 3)
-			    out->ramp = TWL6040_RAMP_ZERO;
+				out->ramp = TWL6040_RAMP_ZERO;
 			else
-			    out->ramp = TWL6040_RAMP_DOWN; 
+				out->ramp = TWL6040_RAMP_DOWN; 
 #else
 			out->ramp = TWL6040_RAMP_DOWN;
 #endif
@@ -1720,7 +1720,7 @@ static int twl6040_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 	priv->sysclk = twl6040_get_sysclk(twl6040);
 
 	switch (clk_id) {
-	case TWL6040_SYSCLK_SEL_LPPLL:
+	case TWL6040_LPPLL_ID:
 		ret = twl6040_set_pll(twl6040, TWL6040_LPPLL_ID,
 				      freq, priv->sysclk);
 		if (ret)
@@ -1728,7 +1728,7 @@ static int twl6040_set_dai_sysclk(struct snd_soc_dai *codec_dai,
 
 		priv->sysclk_constraints = &lp_constraints;
 		break;
-	case TWL6040_SYSCLK_SEL_HPPLL:
+	case TWL6040_HPPLL_ID:
 		ret = twl6040_set_pll(twl6040, TWL6040_HPPLL_ID, freq,
 				      priv->sysclk);
 		if (ret)
@@ -1876,7 +1876,11 @@ static int twl6040_probe(struct snd_soc_codec *codec)
 		priv->ep_step = 1;
 
 	/* default is low-power mode */
+#ifdef CONFIG_SOUND_CONTROL
+	priv->headset_mode = 0;
+#else
 	priv->headset_mode = 1;
+#endif
 	priv->sysclk_constraints = &lp_constraints;
 	priv->workqueue = create_singlethread_workqueue("twl6040-codec");
 
