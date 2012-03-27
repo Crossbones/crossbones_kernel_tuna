@@ -225,6 +225,8 @@ struct twl6040_data * snd_data;
 struct snd_soc_codec * snd_codec;
 
 unsigned int volume_boost = 0;
+
+static bool headset_plugged = false;
 #endif
 
 /*
@@ -847,7 +849,7 @@ static int pga_event(struct snd_soc_dapm_widget *w,
 
 		/* don't use volume ramp for power-up */
 #ifdef CONFIG_SOUND_CONTROL
-		if (w->shift == 2 || w->shift ==3) {
+		if (w->shift == 2 || w->shift == 3) {
 		    out->left_step = out->left_vol + volume_boost;
 		    out->right_step = out->right_vol + volume_boost;
 		} else {
@@ -873,7 +875,10 @@ static int pga_event(struct snd_soc_dapm_widget *w,
 		if (!delayed_work_pending(work)) {
 			/* use volume ramp for power-down */
 #ifdef CONFIG_SOUND_CONTROL
-			out->ramp = TWL6040_RAMP_ZERO;
+			if (w->shift == 2 || w->shift == 3)
+				out->ramp = TWL6040_RAMP_ZERO;
+			else
+				out->ramp = TWL6040_RAMP_DOWN; 
 #else
 			out->ramp = TWL6040_RAMP_DOWN;
 #endif
@@ -940,12 +945,29 @@ EXPORT_SYMBOL(soundcontrol_updatevolume);
 
 void soundcontrol_updateperf(bool highperf_enabled)
 {
-    if (!headset_power_mode(snd_codec, highperf_enabled))
-	snd_data->headset_mode = highperf_enabled ? 1 : 0;
+    snd_data->headset_mode = highperf_enabled ? 1 : 0;
+
+    if (headset_plugged) {
+	headset_power_mode(snd_codec, snd_data->headset_mode);
+    }
 
     return;
 }
 EXPORT_SYMBOL(soundcontrol_updateperf);
+
+void soundcontrol_reportjack(int jack_type)
+{
+    if (jack_type == 0) {
+	headset_plugged = false;
+	headset_power_mode(snd_codec, 1);
+    } else { 
+	headset_plugged = true;
+	headset_power_mode(snd_codec, snd_data->headset_mode);
+    }
+
+    return;
+}
+EXPORT_SYMBOL(soundcontrol_reportjack);
 #endif
 
 static int twl6040_hs_dac_event(struct snd_soc_dapm_widget *w,
