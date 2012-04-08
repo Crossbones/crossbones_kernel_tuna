@@ -291,7 +291,7 @@ nfs_fhget(struct super_block *sb, struct nfs_fh *fh, struct nfs_fattr *fattr)
 		 */
 		inode->i_op = NFS_SB(sb)->nfs_client->rpc_ops->file_inode_ops;
 		if (S_ISREG(inode->i_mode)) {
-			inode->i_fop = &nfs_file_operations;
+			inode->i_fop = NFS_SB(sb)->nfs_client->rpc_ops->file_ops;
 			inode->i_data.a_ops = &nfs_file_aops;
 			inode->i_data.backing_dev_info = &NFS_SB(sb)->backing_dev_info;
 		} else if (S_ISDIR(inode->i_mode)) {
@@ -1462,7 +1462,6 @@ struct inode *nfs_alloc_inode(struct super_block *sb)
 static void nfs_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kmem_cache_free(nfs_inode_cachep, NFS_I(inode));
 }
 

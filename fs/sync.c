@@ -129,6 +129,17 @@ void emergency_sync(void)
 	}
 }
 
+#ifdef CONFIG_FILE_SYNC_DISABLE
+static inline int do_fsync(unsigned int fd, int datasync)
+{
+	return 0;
+}
+SYSCALL_DEFINE1(syncfs, int, fd)
+{
+	return 0;
+}
+
+#else /* !CONFIG_FILE_SYNC_DISABLE */
 /*
  * sync a single super
  */
@@ -190,6 +201,20 @@ out:
 }
 EXPORT_SYMBOL(vfs_fsync_range);
 
+static int do_fsync(unsigned int fd, int datasync)
+{
+	struct file *file;
+	int ret = -EBADF;
+
+	file = fget(fd);
+	if (file) {
+		ret = vfs_fsync(file, datasync);
+		fput(file);
+	}
+	return ret;
+}
+#endif /* CONFIG_FILE_SYNC_DISABLE */
+
 /**
  * vfs_fsync - perform a fsync or fdatasync on a file
  * @file:		file to sync
@@ -204,29 +229,14 @@ int vfs_fsync(struct file *file, int datasync)
 }
 EXPORT_SYMBOL(vfs_fsync);
 
-static int do_fsync(unsigned int fd, int datasync)
-{
-	struct file *file;
-	int ret = -EBADF;
-
-	file = fget(fd);
-	if (file) {
-		ret = vfs_fsync(file, datasync);
-		fput(file);
-	}
-	return ret;
-}
-
 SYSCALL_DEFINE1(fsync, unsigned int, fd)
 {
-	//return do_fsync(fd, 0);
-	return 0;
+	return do_fsync(fd, 0);
 }
 
 SYSCALL_DEFINE1(fdatasync, unsigned int, fd)
 {
-	//return do_fsync(fd, 1);
-	return 0;
+	return do_fsync(fd, 1);
 }
 
 /**
@@ -246,6 +256,13 @@ int generic_write_sync(struct file *file, loff_t pos, loff_t count)
 }
 EXPORT_SYMBOL(generic_write_sync);
 
+#ifdef CONFIG_FILE_SYNC_DISABLE
+SYSCALL_DEFINE(sync_file_range)(int fd, loff_t offset, loff_t nbytes,
+				unsigned int flags)
+{
+	return 0;
+}
+#else /* !CONFIG_FILE_SYNC_DISABLE */
 /*
  * sys_sync_file_range() permits finely controlled syncing over a segment of
  * a file in the range offset .. (offset+nbytes-1) inclusive.  If nbytes is
@@ -296,7 +313,6 @@ EXPORT_SYMBOL(generic_write_sync);
 SYSCALL_DEFINE(sync_file_range)(int fd, loff_t offset, loff_t nbytes,
 				unsigned int flags)
 {
-#ifdef ALLOWFSYNC
 	int ret;
 	struct file *file;
 	struct address_space *mapping;
@@ -376,9 +392,9 @@ out_put:
 	fput_light(file, fput_needed);
 out:
 	return ret;
-#endif
-return 0;
 }
+#endif /* CONFIG_FILE_SYNC_DISABLE */
+
 #ifdef CONFIG_HAVE_SYSCALL_WRAPPERS
 asmlinkage long SyS_sync_file_range(long fd, loff_t offset, loff_t nbytes,
 				    long flags)
@@ -394,8 +410,7 @@ SYSCALL_ALIAS(sys_sync_file_range, SyS_sync_file_range);
 SYSCALL_DEFINE(sync_file_range2)(int fd, unsigned int flags,
 				 loff_t offset, loff_t nbytes)
 {
-	//return sys_sync_file_range(fd, offset, nbytes, flags);
-	return 0;
+	return sys_sync_file_range(fd, offset, nbytes, flags);
 }
 #ifdef CONFIG_HAVE_SYSCALL_WRAPPERS
 asmlinkage long SyS_sync_file_range2(long fd, long flags,

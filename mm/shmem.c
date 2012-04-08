@@ -1590,6 +1590,12 @@ int shmem_lock(struct file *file, int lock, struct user_struct *user)
 		user_shm_unlock(inode->i_size, user);
 		info->flags &= ~VM_LOCKED;
 		mapping_clear_unevictable(file->f_mapping);
+		/*
+		 * Ensure that a racing putback_lru_page() can see
+		 * the pages of this mapping are evictable when we
+		 * skip them due to !PageLRU during the scan.
+		 */
+		smp_mb__after_clear_bit();
 		scan_mapping_unevictable_pages(file->f_mapping);
 	}
 	retval = 0;
@@ -2647,7 +2653,6 @@ static struct inode *shmem_alloc_inode(struct super_block *sb)
 static void shmem_i_callback(struct rcu_head *head)
 {
 	struct inode *inode = container_of(head, struct inode, i_rcu);
-	INIT_LIST_HEAD(&inode->i_dentry);
 	kmem_cache_free(shmem_inode_cachep, SHMEM_I(inode));
 }
 

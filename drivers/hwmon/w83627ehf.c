@@ -1583,7 +1583,7 @@ store_##reg(struct device *dev, struct device_attribute *attr, \
 	val = step_time_to_reg(val, data->pwm_mode[nr]); \
 	mutex_lock(&data->update_lock); \
 	data->reg[nr] = val; \
-	w83627ehf_write_value(data, W83627EHF_REG_##REG[nr], val); \
+	w83627ehf_write_value(data, data->REG_##REG[nr], val); \
 	mutex_unlock(&data->update_lock); \
 	return count; \
 } \
@@ -1762,7 +1762,17 @@ static inline void __devinit w83627ehf_init_device(struct w83627ehf_data *data,
 		diode = 0x70;
 	}
 	for (i = 0; i < 3; i++) {
-		if ((tmp & (0x02 << i)))
+		const char *label = NULL;
+
+		if (data->temp_label)
+			label = data->temp_label[data->temp_src[i]];
+
+		/* Digital source overrides analog type */
+		if (label && strncmp(label, "PECI", 4) == 0)
+			data->temp_type[i] = 6;
+		else if (label && strncmp(label, "AMD", 3) == 0)
+			data->temp_type[i] = 5;
+		else if ((tmp & (0x02 << i)))
 			data->temp_type[i] = (diode & (0x10 << i)) ? 1 : 3;
 		else
 			data->temp_type[i] = 4; /* thermistor */
@@ -1813,7 +1823,8 @@ static int __devinit w83627ehf_probe(struct platform_device *pdev)
 		goto exit;
 	}
 
-	data = kzalloc(sizeof(struct w83627ehf_data), GFP_KERNEL);
+	data = devm_kzalloc(&pdev->dev, sizeof(struct w83627ehf_data),
+			    GFP_KERNEL);
 	if (!data) {
 		err = -ENOMEM;
 		goto exit_release;
@@ -2309,9 +2320,8 @@ static int __devinit w83627ehf_probe(struct platform_device *pdev)
 
 exit_remove:
 	w83627ehf_device_remove_files(dev);
-	kfree(data);
-	platform_set_drvdata(pdev, NULL);
 exit_release:
+	platform_set_drvdata(pdev, NULL);
 	release_region(res->start, IOREGION_LENGTH);
 exit:
 	return err;
@@ -2325,7 +2335,6 @@ static int __devexit w83627ehf_remove(struct platform_device *pdev)
 	w83627ehf_device_remove_files(&pdev->dev);
 	release_region(data->addr, IOREGION_LENGTH);
 	platform_set_drvdata(pdev, NULL);
-	kfree(data);
 
 	return 0;
 }

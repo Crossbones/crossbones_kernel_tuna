@@ -62,6 +62,7 @@ u32 rs600_page_flip(struct radeon_device *rdev, int crtc_id, u64 crtc_base)
 {
 	struct radeon_crtc *radeon_crtc = rdev->mode_info.crtcs[crtc_id];
 	u32 tmp = RREG32(AVIVO_D1GRPH_UPDATE + radeon_crtc->crtc_offset);
+	int i;
 
 	/* Lock the graphics update lock */
 	tmp |= AVIVO_D1GRPH_UPDATE_LOCK;
@@ -74,7 +75,11 @@ u32 rs600_page_flip(struct radeon_device *rdev, int crtc_id, u64 crtc_base)
 	       (u32)crtc_base);
 
 	/* Wait for update_pending to go high. */
-	while (!(RREG32(AVIVO_D1GRPH_UPDATE + radeon_crtc->crtc_offset) & AVIVO_D1GRPH_SURFACE_UPDATE_PENDING));
+	for (i = 0; i < rdev->usec_timeout; i++) {
+		if (RREG32(AVIVO_D1GRPH_UPDATE + radeon_crtc->crtc_offset) & AVIVO_D1GRPH_SURFACE_UPDATE_PENDING)
+			break;
+		udelay(1);
+	}
 	DRM_DEBUG("Update pending now high. Unlocking vupdate_lock.\n");
 
 	/* Unlock the lock, so double-buffering can take place inside vblank */
@@ -287,6 +292,7 @@ void rs600_hpd_init(struct radeon_device *rdev)
 		default:
 			break;
 		}
+		radeon_hpd_set_polarity(rdev, radeon_connector->hpd.hpd);
 	}
 	if (rdev->irq.installed)
 		rs600_irq_set(rdev);
@@ -692,9 +698,7 @@ int rs600_irq_process(struct radeon_device *rdev)
 			WREG32(RADEON_BUS_CNTL, msi_rearm | RS600_MSI_REARM);
 			break;
 		default:
-			msi_rearm = RREG32(RADEON_MSI_REARM_EN) & ~RV370_MSI_REARM_EN;
-			WREG32(RADEON_MSI_REARM_EN, msi_rearm);
-			WREG32(RADEON_MSI_REARM_EN, msi_rearm | RV370_MSI_REARM_EN);
+			WREG32(RADEON_MSI_REARM_EN, RV370_MSI_REARM_EN);
 			break;
 		}
 	}

@@ -626,7 +626,7 @@ static void __devinit quirk_usb_disable_ehci(struct pci_dev *pdev)
 	void __iomem *base, *op_reg_base;
 	u32	hcc_params, cap, val;
 	u8	offset, cap_length;
-	int	wait_time, delta, count = 256/4;
+	int	wait_time, count = 256/4;
 
 	if (!mmio_resource_enabled(pdev, 0))
 		return;
@@ -672,11 +672,10 @@ static void __devinit quirk_usb_disable_ehci(struct pci_dev *pdev)
 		writel(val, op_reg_base + EHCI_USBCMD);
 
 		wait_time = 2000;
-		delta = 100;
 		do {
 			writel(0x3f, op_reg_base + EHCI_USBSTS);
-			udelay(delta);
-			wait_time -= delta;
+			udelay(100);
+			wait_time -= 100;
 			val = readl(op_reg_base + EHCI_USBSTS);
 			if ((val == ~(u32)0) || (val & EHCI_USBSTS_HALTED)) {
 				break;
@@ -878,7 +877,17 @@ static void __devinit quirk_usb_early_handoff(struct pci_dev *pdev)
 	 */
 	if (pdev->vendor == 0x184e)	/* vendor Netlogic */
 		return;
+	if (pdev->class != PCI_CLASS_SERIAL_USB_UHCI &&
+			pdev->class != PCI_CLASS_SERIAL_USB_OHCI &&
+			pdev->class != PCI_CLASS_SERIAL_USB_EHCI &&
+			pdev->class != PCI_CLASS_SERIAL_USB_XHCI)
+		return;
 
+	if (pci_enable_device(pdev) < 0) {
+		dev_warn(&pdev->dev, "Can't enable PCI device, "
+				"BIOS handoff failed.\n");
+		return;
+	}
 	if (pdev->class == PCI_CLASS_SERIAL_USB_UHCI)
 		quirk_usb_handoff_uhci(pdev);
 	else if (pdev->class == PCI_CLASS_SERIAL_USB_OHCI)
@@ -887,5 +896,6 @@ static void __devinit quirk_usb_early_handoff(struct pci_dev *pdev)
 		quirk_usb_disable_ehci(pdev);
 	else if (pdev->class == PCI_CLASS_SERIAL_USB_XHCI)
 		quirk_usb_handoff_xhci(pdev);
+	pci_disable_device(pdev);
 }
 DECLARE_PCI_FIXUP_FINAL(PCI_ANY_ID, PCI_ANY_ID, quirk_usb_early_handoff);

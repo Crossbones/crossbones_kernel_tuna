@@ -84,13 +84,18 @@ u32 r100_page_flip(struct radeon_device *rdev, int crtc_id, u64 crtc_base)
 {
 	struct radeon_crtc *radeon_crtc = rdev->mode_info.crtcs[crtc_id];
 	u32 tmp = ((u32)crtc_base) | RADEON_CRTC_OFFSET__OFFSET_LOCK;
+	int i;
 
 	/* Lock the graphics update lock */
 	/* update the scanout addresses */
 	WREG32(RADEON_CRTC_OFFSET + radeon_crtc->crtc_offset, tmp);
 
 	/* Wait for update_pending to go high. */
-	while (!(RREG32(RADEON_CRTC_OFFSET + radeon_crtc->crtc_offset) & RADEON_CRTC_OFFSET__GUI_TRIG_OFFSET));
+	for (i = 0; i < rdev->usec_timeout; i++) {
+		if (RREG32(RADEON_CRTC_OFFSET + radeon_crtc->crtc_offset) & RADEON_CRTC_OFFSET__GUI_TRIG_OFFSET)
+			break;
+		udelay(1);
+	}
 	DRM_DEBUG("Update pending now high. Unlocking vupdate_lock.\n");
 
 	/* Unlock the lock, so double-buffering can take place inside vblank */
@@ -434,6 +439,7 @@ void r100_hpd_init(struct radeon_device *rdev)
 		default:
 			break;
 		}
+		radeon_hpd_set_polarity(rdev, radeon_connector->hpd.hpd);
 	}
 	if (rdev->irq.installed)
 		r100_irq_set(rdev);
@@ -675,9 +681,7 @@ int r100_irq_process(struct radeon_device *rdev)
 			WREG32(RADEON_AIC_CNTL, msi_rearm | RS400_MSI_REARM);
 			break;
 		default:
-			msi_rearm = RREG32(RADEON_MSI_REARM_EN) & ~RV370_MSI_REARM_EN;
-			WREG32(RADEON_MSI_REARM_EN, msi_rearm);
-			WREG32(RADEON_MSI_REARM_EN, msi_rearm | RV370_MSI_REARM_EN);
+			WREG32(RADEON_MSI_REARM_EN, RV370_MSI_REARM_EN);
 			break;
 		}
 	}

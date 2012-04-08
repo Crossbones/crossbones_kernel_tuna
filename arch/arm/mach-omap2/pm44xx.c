@@ -107,8 +107,22 @@ static struct clockdomain *emif_clkdm, *mpuss_clkdm;
  */
 #define OMAP4_PM_ERRATUM_MPU_EMIF_NO_DYNDEP_IDLE_iXXX	BIT(4)
 
-#define OMAP4_PM_ERRATUM_LPDDR_CLK_IO_iXXX				BIT(5)
-#define LPDDR_WD_PULL_DOWN								0x02
+/*
+ * There is a HW bug in CMD PHY which gives ISO signals as same for both
+ * PADn and PADp on differential IO pad, because of which IO leaks higher
+ * as pull controls are differential internally and pull value does not
+ * match A value.
+ * Though there is no functionality impact due to this bug, it is seen
+ * that by disabling the pulls there is a savings ~500uA in OSWR, but draws
+ * ~300uA more during OFF mode.
+ * To save power during both idle/suspend following approach taken:
+ * 1) Enable WA during boot-up.
+ * 2) Disable WA while attempting suspend and enable during resume.
+ *
+ * CDDS no: OMAP4460-1.0BUG00291 (OMAP official errata ID yet to be available).
+ */
+#define OMAP4_PM_ERRATUM_LPDDR_CLK_IO_iXXX		BIT(5)
+#define LPDDR_WD_PULL_DOWN				0x02
 
 u8 pm44xx_errata;
 #define is_pm44xx_erratum(erratum) (pm44xx_errata & OMAP4_PM_ERRATUM_##erratum)
@@ -125,6 +139,8 @@ void check_cawake_wakeup_event(void)
 		cawake_event_flag = 1;
 	}
 }
+
+#define MAX_IOPAD_LATCH_TIME 1000
 
 void syscontrol_lpddr_clk_io_errata(bool enable)
 {
@@ -148,7 +164,6 @@ void syscontrol_lpddr_clk_io_errata(bool enable)
 	omap4_ctrl_pad_writel(v, OMAP4_CTRL_MODULE_PAD_CORE_CONTROL_LPDDR2IO2_2);
 }
 
-#define MAX_IOPAD_LATCH_TIME 1000
 void omap4_trigger_ioctrl(void)
 {
 	int i = 0;
@@ -250,7 +265,6 @@ void omap4_enter_sleep(unsigned int cpu, unsigned int power_state, bool suspend)
 		if (omap_sr_disable_reset_volt(mpu_voltdm))
 			goto abort_device_off;
 
-		omap_sr_disable_reset_volt(mpu_voltdm);
 		omap_vc_set_auto_trans(mpu_voltdm,
 			OMAP_VC_CHANNEL_AUTO_TRANSITION_RETENTION);
 	}
@@ -1258,8 +1272,9 @@ static void __init omap4_pm_setup_errata(void)
 	 */
 	if (cpu_is_omap44xx())
 		pm44xx_errata |= OMAP4_PM_ERRATUM_IVA_AUTO_RET_iXXX |
-				OMAP4_PM_ERRATUM_HSI_SWAKEUP_iXXX |
-				OMAP4_PM_ERRATUM_LPDDR_CLK_IO_iXXX;
+				 OMAP4_PM_ERRATUM_HSI_SWAKEUP_iXXX |
+				 OMAP4_PM_ERRATUM_LPDDR_CLK_IO_iXXX;
+
 	/* Dynamic Dependency errata for all silicon !=443x */
 	if (cpu_is_omap443x())
 		pm44xx_errata |= OMAP4_PM_ERRATUM_MPU_EMIF_NO_DYNDEP_i688;
